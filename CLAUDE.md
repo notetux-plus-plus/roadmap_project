@@ -92,6 +92,37 @@ See `plugins/CLAUDE.md` for plugin development rules and the per-plugin CLAUDE.m
 
 ---
 
+## CI/CD pipeline (per plugin)
+
+Every plugin repo has `.github/workflows/build.yml` with two behaviours:
+
+- **Pull request** — compiles the `.so` (compile-check gate, no artifact uploaded).
+- **Tag push `v*.*.*`** — compiles the `.so`, computes `sha256sum`, and uploads both files
+  as assets to an auto-created GitHub Release.
+
+To release a new plugin version:
+```sh
+git tag v1.2.0 && git push origin v1.2.0
+```
+CI produces `<PluginName>.so` and `<PluginName>.so.sha256` as release assets. Copy the hash
+from the `.sha256` file into `nppPluginList/v1/notetux_plugin_list.json`.
+
+### Cross-distro binary compatibility
+
+All workflows build on **Ubuntu 20.04** (glibc 2.31) so the `.so` runs unchanged on any
+distro that can run notetux: Ubuntu 20.04+, Debian 11+, Fedora 33+, openSUSE Leap 15.3+.
+
+Rules enforced in every plugin:
+- `-Wl,--as-needed` strips unused dynamic deps from the `.so`.
+- Only link dynamically against **glibc + GTK3** — both are guaranteed present on any system
+  running notetux.
+- Optional runtime libraries (e.g. `libssh2` in NppFTP, `libenchant` for spell-check) are
+  loaded with `dlopen` at runtime — **never linked with `-l`**. The CI pipeline for NppFTP
+  actively checks that `libssh2` does not appear in `ldd` output and fails the build if it does.
+- Never use `ubuntu-latest` as the runner — pin to `ubuntu-20.04` to keep the glibc baseline stable.
+
+---
+
 ## Cross-repo workflow
 
 ### Adding a new plugin
@@ -99,16 +130,18 @@ See `plugins/CLAUDE.md` for plugin development rules and the per-plugin CLAUDE.m
 1. Create `plugins/<plugin_id>/` as a new git repo (copy structure from `hello_world`).
 2. Implement the plugin (five mandatory exports + `setInfo`).
 3. Push to `git@github.com:notetux-plus-plus/<plugin_id>.git`.
-4. Build the `.so` and upload it as a GitHub Release asset.
-5. Add an entry to `nppPluginList/v1/notetux_plugin_list.json` (PR to `nppPluginList` repo).
-6. The plugin becomes visible in Plugins Admin on the next catalogue refresh.
+4. Tag `v0.1.0` → CI builds and uploads the `.so` release asset automatically.
+5. Copy the SHA-256 from the `.sha256` release asset.
+6. Add an entry to `nppPluginList/v1/notetux_plugin_list.json` (PR to `nppPluginList` repo).
+7. The plugin becomes visible in Plugins Admin on the next catalogue refresh.
 
 ### Updating an existing plugin
 
 1. Bump `version` in `<PluginName>.c` (and README).
-2. Create a new GitHub Release with the updated `.so`.
-3. Update `version`, `repository.download`, and `repository.sha256` in `nppPluginList`.
-4. PR the catalogue change; CI validates JSON; merge to `main`.
+2. Tag the new version → CI builds and uploads the `.so` automatically.
+3. Copy the new SHA-256 from the `.sha256` release asset.
+4. Update `version`, `repository.download`, and `repository.sha256` in `nppPluginList`.
+5. PR the catalogue change; CI validates JSON; merge to `main`.
 
 ### Updating the plugin ABI in notetux
 
