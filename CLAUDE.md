@@ -34,8 +34,9 @@ next-steps backlog. That file is the single source of truth for the application 
 **Key facts for cross-repo work:**
 - Plugin ABI is defined by five mandatory C exports: `getName`, `getFuncsArray`, `beNotified`,
   `messageProc`, `isUnicode`; plus an optional `setInfo(NppData)`.
-- `NppData` carries `nppHandle`, `scintillaMainHandle`, `scintillaSecondHandle`, and
-  the `hostMsg` function pointer.
+- `NppData` carries `nppHandle`, `scintillaMainHandle`, `scintillaSecondHandle`,
+  the `hostMsg` function pointer, and `configDir[1024]` (pre-filled by the host with
+  `~/.config/notetux/plugins/<Name>/config/` before `setInfo` is called).
 - Plugins are loaded from `~/.config/notetux/plugins/<Name>/<Name>.so`
   and `/usr/lib/notetux/plugins/<Name>/<Name>.so`.
 - The Plugins Admin dialog (`pluginsadmin.c`) fetches the catalogue from the URL stored in
@@ -43,7 +44,7 @@ next-steps backlog. That file is the single source of truth for the application 
   repo (see below).
 - NPPM messages currently routed by `plugin_host_message()`:
   `NPPM_GETCURRENTSCINTILLA`, `NPPM_GETNBOPENFILES`, `NPPM_GETFULLCURRENTPATH`,
-  `NPPM_GETFILENAME`, `NPPM_GETDIRECTORYPATH`.
+  `NPPM_GETFILENAME`, `NPPM_GETDIRECTORYPATH`, `NPPM_GETPLUGINSCONFIGDIR`.
 
 ---
 
@@ -89,6 +90,43 @@ plugins/<plugin_id>/
 
 See `plugins/hello_world/` for the reference implementation.
 See `plugins/CLAUDE.md` for plugin development rules and the per-plugin CLAUDE.md template.
+
+### Plugin configuration directory — mandatory convention
+
+Every plugin that persists any state **must** store it under its own config directory:
+
+```
+~/.config/notetux/plugins/<PluginName>/config/
+```
+
+The host creates this directory automatically before calling `setInfo`. Plugins receive it
+in two ways — use whichever is convenient:
+
+**1. Via `NppData.configDir` in `setInfo` (preferred):**
+```c
+static char s_config_dir[1024] = "";
+
+void setInfo(NppData data)
+{
+    s_host_msg = data.hostMsg;
+    snprintf(s_config_dir, sizeof(s_config_dir), "%s", data.configDir);
+}
+```
+
+**2. Via `NPPM_GETPLUGINSCONFIGDIR` at any time:**
+```c
+char dir[1024] = "";
+s_host_msg(NPPM_GETPLUGINSCONFIGDIR,
+           (unsigned long)(intptr_t)"MyPlugin",
+           (long)(intptr_t)dir);
+/* dir is now ~/.config/notetux/plugins/MyPlugin/config/ */
+```
+
+Rules:
+- Never hard-code the config path — always use what the host provides.
+- Never write config files outside this directory.
+- The directory is guaranteed to exist when `setInfo` returns.
+- Uninstalling a plugin = deleting `~/.config/notetux/plugins/<PluginName>/` in its entirety.
 
 ---
 
